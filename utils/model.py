@@ -7,22 +7,23 @@ import numpy as np
 class RKNN_model_container:
     def __init__(self, model_path, npuid):
         from rknnlite.api import RKNNLite
+
         rknn = RKNNLite(verbose=False)
 
         rknn.load_rknn(model_path)
 
         if npuid == 0:
-            ret = rknn.init_runtime(target='rk3588', core_mask=RKNNLite.NPU_CORE_0)
+            ret = rknn.init_runtime(target="rk3588", core_mask=RKNNLite.NPU_CORE_0)
         elif npuid == 1:
-            ret = rknn.init_runtime(target='rk3588', core_mask=RKNNLite.NPU_CORE_1)
+            ret = rknn.init_runtime(target="rk3588", core_mask=RKNNLite.NPU_CORE_1)
         elif npuid == 2:
-            ret = rknn.init_runtime(target='rk3588', core_mask=RKNNLite.NPU_CORE_2)
+            ret = rknn.init_runtime(target="rk3588", core_mask=RKNNLite.NPU_CORE_2)
         else:
-            print('error npuid')
+            print("error npuid")
             exit()
 
         if ret != 0:
-            print('Init runtime environment failed')
+            print("Init runtime environment failed")
             exit(ret)
 
         self.rknn = rknn
@@ -36,15 +37,17 @@ class RKNN_model_container:
 class ONNX_model_container:
     def __init__(self, model_path):
         import onnxruntime
+
         sess_option = onnxruntime.SessionOptions()
         sess_option.log_severity_level = 3
-        self.sess = onnxruntime.InferenceSession(model_path, sess_option=sess_option,
-                                                 providers=['CPUExecutionProvider'])
+        self.sess = onnxruntime.InferenceSession(
+            model_path, sess_option=sess_option, providers=["CPUExecutionProvider"]
+        )
 
     def run(self, img):
         input_data = img.transpose((2, 0, 1))
         input_data = input_data[None].astype(np.float32)
-        input_data = input_data / 255.
+        input_data = input_data / 255.0
         input_dict = dict()
         input_dict[self.sess.get_inputs()[0].name] = input_data
 
@@ -64,12 +67,12 @@ class BaseModel:
         self.classes = classes
         self.model_path = model_path
         self.npuid = npuid
-        self.model = self.load_model(model_path.rsplit('.', 1)[1])
+        self.model = self.load_model(model_path.rsplit(".", 1)[1])
 
     def load_model(self, type):
-        if type == 'onnx':
+        if type == "onnx":
             return ONNX_model_container(self.model_path)
-        elif type == 'rknn':
+        elif type == "rknn":
             return RKNN_model_container(self.model_path, self.npuid)
 
     def run(self, img):
@@ -110,8 +113,7 @@ class BaseModel:
         return _in.reshape(-1, ch)
 
     def filter_boxes(self, boxes, box_class_probs):
-        """Filter boxes with object threshold.
-        """
+        """Filter boxes with object threshold."""
         class_max_score = np.max(box_class_probs, axis=-1)
         classes = np.argmax(box_class_probs, axis=-1)
         _class_pos = np.where(class_max_score >= self.conf)
@@ -150,8 +152,13 @@ class DetectModel(BaseModel):
             keep = self.nms(b, s)
             if len(keep) != 0:
                 xyxys = b[keep]
-                xywhs = np.concatenate([(xyxys[:, :2] + xyxys[:, 2:4]) / 2, xyxys[:, 2:4] - xyxys[:, :2]], axis=1)
-                nxywhs.append([deletterbox(xywh, org_w, org_h, self.imgsz) for xywh in xywhs])
+                xywhs = np.concatenate(
+                    [(xyxys[:, :2] + xyxys[:, 2:4]) / 2, xyxys[:, 2:4] - xyxys[:, :2]],
+                    axis=1,
+                )
+                nxywhs.append(
+                    [deletterbox(xywh, org_w, org_h, self.imgsz) for xywh in xywhs]
+                )
                 nclasses.append(c[keep])
                 nscores.append(s[keep])
 
@@ -169,7 +176,9 @@ class DetectModel(BaseModel):
         col = col.reshape(1, 1, grid_h, grid_w)
         row = row.reshape(1, 1, grid_h, grid_w)
         grid = np.concatenate((col, row), axis=1)
-        stride = np.array([self.imgsz // grid_h, self.imgsz // grid_w]).reshape((1, 2, 1, 1))
+        stride = np.array([self.imgsz // grid_h, self.imgsz // grid_w]).reshape(
+            (1, 2, 1, 1)
+        )
 
         box_xy = grid + 0.5 - position[:, 0:2, :, :]
         box_xy2 = grid + 0.5 + position[:, 2:4, :, :]
@@ -221,10 +230,12 @@ class OBBModel(BaseModel):
         for i in range(defualt_branch):
             dists.append(self.dfl(input_data[pair_per_branch * i]))
             classes_conf.append(input_data[pair_per_branch * i + 1])
-            rads.append((input_data[pair_per_branch * i + 2]-0.25) * np.pi)
+            rads.append((input_data[pair_per_branch * i + 2] - 0.25) * np.pi)
 
         # [n,c,h,w] -> [n*h*w,c]
-        xywhrs = [self.sp_flatten(self.dist2rbox(_v1, _v2)) for _v1, _v2 in zip(dists, rads)]
+        xywhrs = [
+            self.sp_flatten(self.dist2rbox(_v1, _v2)) for _v1, _v2 in zip(dists, rads)
+        ]
         classes_conf = [self.sp_flatten(_v) for _v in classes_conf]
 
         xywhrs = np.concatenate(xywhrs)
@@ -234,13 +245,24 @@ class OBBModel(BaseModel):
         xywhrs, classes, scores = self.filter_boxes(xywhrs, classes_conf)
 
         # nms
-        i = self.nms(np.concatenate([xywhrs[:, :2] + classes[:, None] * max_wh, xywhrs[:, 2:4], xywhrs[:, 4:]], axis=1),
-                     scores)
+        i = self.nms(
+            np.concatenate(
+                [
+                    xywhrs[:, :2] + classes[:, None] * max_wh,
+                    xywhrs[:, 2:4],
+                    xywhrs[:, 4:],
+                ],
+                axis=1,
+            ),
+            scores,
+        )
         xywhrs = xywhrs[i]
         if len(xywhrs) == 0:
             return [], [], []
 
-        xywhrs[:, :4] = [deletterbox(xywh, org_w, org_h, self.imgsz) for xywh in xywhrs[:, :4]]
+        xywhrs[:, :4] = [
+            deletterbox(xywh, org_w, org_h, self.imgsz) for xywh in xywhrs[:, :4]
+        ]
         classes = classes[i]
         scores = scores[i]
 
@@ -256,7 +278,9 @@ class OBBModel(BaseModel):
         col, row = np.meshgrid(np.arange(0, grid_w), np.arange(0, grid_h))
         col = col.reshape(1, 1, grid_h, grid_w)
         row = row.reshape(1, 1, grid_h, grid_w)
-        stride = np.array([self.imgsz // grid_h, self.imgsz // grid_w]).reshape((1, 2, 1, 1))
+        stride = np.array([self.imgsz // grid_h, self.imgsz // grid_w]).reshape(
+            (1, 2, 1, 1)
+        )
         box_x, box_y = col + 0.5 + x, row + 0.5 + y
         box_xy = np.concatenate((box_x, box_y), axis=1)
         return np.concatenate([box_xy * stride, (rb + lt) * stride, rads], axis=1)
@@ -281,17 +305,24 @@ class OBBModel(BaseModel):
         a2, b2, c2 = (x.squeeze(-1)[None] for x in self._get_covariance_matrix(obb2))
 
         t1 = (
-                     ((a1 + a2) * (y1 - y2) ** 2 + (b1 + b2) * (x1 - x2) ** 2) /
-                     ((a1 + a2) * (b1 + b2) - (c1 + c2) ** 2 + eps)
-             ) * 0.25
+            ((a1 + a2) * (y1 - y2) ** 2 + (b1 + b2) * (x1 - x2) ** 2)
+            / ((a1 + a2) * (b1 + b2) - (c1 + c2) ** 2 + eps)
+        ) * 0.25
         t2 = (
-                     ((c1 + c2) * (x2 - x1) * (y1 - y2)) /
-                     ((a1 + a2) * (b1 + b2) - (c1 + c2) ** 2 + eps)
-             ) * 0.5
-        t3 = np.log(
-            ((a1 + a2) * (b1 + b2) - (c1 + c2) ** 2) /
-            (4 * ((a1 * b1 - c1 ** 2).clip(0) * (a2 * b2 - c2 ** 2).clip(0)) ** 0.5 + eps)
-            + eps) * 0.5
+            ((c1 + c2) * (x2 - x1) * (y1 - y2))
+            / ((a1 + a2) * (b1 + b2) - (c1 + c2) ** 2 + eps)
+        ) * 0.5
+        t3 = (
+            np.log(
+                ((a1 + a2) * (b1 + b2) - (c1 + c2) ** 2)
+                / (
+                    4 * ((a1 * b1 - c1**2).clip(0) * (a2 * b2 - c2**2).clip(0)) ** 0.5
+                    + eps
+                )
+                + eps
+            )
+            * 0.5
+        )
         bd = np.clip(t1 + t2 + t3, eps, 100.0)
         hd = (1.0 - np.exp(-bd) + eps) ** 0.5
         return 1 - hd
@@ -302,28 +333,30 @@ class OBBModel(BaseModel):
         a, b, c = np.split(gbbs, 3, axis=-1)
         cos = np.cos(c)
         sin = np.sin(c)
-        cos2 = cos ** 2
-        sin2 = sin ** 2
+        cos2 = cos**2
+        sin2 = sin**2
         return a * cos2 + b * sin2, a * sin2 + b * cos2, (a - b) * cos * sin
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from utils.common import plot_polygon
 
-    model_path = '../models/7.onnx'
-    img_path = '../images/7'
+    model_path = "../models/7.onnx"
+    img_path = "../images/7"
     # imgsz = 160
     imgsz = 640
     conf = 0.5
     # iou = 0.5
     iou = 0.2
     # CLASSES = ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'locater')
-    CLASSES = ('target',)
+    CLASSES = ("target",)
     # model = DetectModel(model_path, imgsz, conf, iou, CLASSES)
     model = OBBModel(model_path, imgsz, conf, iou, CLASSES)
     frames_num = 0
     for img in os.listdir(img_path):
-        img = cv2.imdecode(np.fromfile(f'{img_path}/{img}', dtype=np.uint8), cv2.IMREAD_COLOR)
+        img = cv2.imdecode(
+            np.fromfile(f"{img_path}/{img}", dtype=np.uint8), cv2.IMREAD_COLOR
+        )
         __s, classes, scores = model.run(img)
 
         # if len(__s) > 0:
@@ -341,21 +374,27 @@ if __name__ == '__main__':
             # xywhrs->xyxyxyxy
             x, y, w, h, r = np.split(__s, [1, 2, 3, 4], axis=1)
             sin_r, cos_r = np.sin(r), np.cos(r)
-            pointss = np.concatenate([
-                x - w / 2 * cos_r - h / 2 * sin_r,
-                y - w / 2 * sin_r + h / 2 * cos_r,
-                x + w / 2 * cos_r - h / 2 * sin_r,
-                y + w / 2 * sin_r + h / 2 * cos_r,
-                x + w / 2 * cos_r + h / 2 * sin_r,
-                y + w / 2 * sin_r - h / 2 * cos_r,
-                x - w / 2 * cos_r + h / 2 * sin_r,
-                y - w / 2 * sin_r - h / 2 * cos_r
-            ], axis=1)
+            pointss = np.concatenate(
+                [
+                    x - w / 2 * cos_r - h / 2 * sin_r,
+                    y - w / 2 * sin_r + h / 2 * cos_r,
+                    x + w / 2 * cos_r - h / 2 * sin_r,
+                    y + w / 2 * sin_r + h / 2 * cos_r,
+                    x + w / 2 * cos_r + h / 2 * sin_r,
+                    y + w / 2 * sin_r - h / 2 * cos_r,
+                    x - w / 2 * cos_r + h / 2 * sin_r,
+                    y - w / 2 * sin_r - h / 2 * cos_r,
+                ],
+                axis=1,
+            )
         else:
             pointss = []
 
-        texts = ['{0} {1:.2f}'.format(CLASSES[cl], score) for cl, score in zip(classes, scores)]
+        texts = [
+            "{0} {1:.2f}".format(CLASSES[cl], score)
+            for cl, score in zip(classes, scores)
+        ]
         img = plot_polygon(img, pointss, texts)
-        cv2.imshow('0', cv2.resize(img, (640, 640)))
+        cv2.imshow("0", cv2.resize(img, (640, 640)))
         cv2.waitKey(0)
         # break
