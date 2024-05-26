@@ -29,8 +29,7 @@ class RKNN_model_container:
         self.rknn = rknn
 
     def run(self, inputs):
-        inputs = np.expand_dims(inputs, axis=0)
-        res = self.rknn.inference(inputs=[inputs])
+        res = self.rknn.inference(inputs=[inputs[None]])
         return res
 
 
