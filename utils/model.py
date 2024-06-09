@@ -60,21 +60,25 @@ class ONNX_model_container:
 
 class BaseModel:
     def __init__(self, model_path: str, imgsz, conf, iou, classes: tuple, npuid=None):
+        # 初始化模型路径、图片大小、置信度、IOU、类别元组和NPUID
         self.imgsz = imgsz
         self.conf = conf
         self.iou = iou
         self.classes = classes
         self.model_path = model_path
         self.npuid = npuid
+        # 加载模型
         self.model = self.load_model(model_path.rsplit(".", 1)[1])
 
     def load_model(self, type):
+        # 根据模型类型加载模型
         if type == "onnx":
             return ONNX_model_container(self.model_path)
         elif type == "rknn":
             return RKNN_model_container(self.model_path, self.npuid)
 
     def run(self, img):
+        # 运行模型
         h, w = img.shape[:2]
         img = self.preprocess(img)
         output_data = self.model.run(img)
@@ -82,11 +86,13 @@ class BaseModel:
         return points, classes, scores
 
     def preprocess(self, img):
+        # 预处理
         img = letterbox(img, self.imgsz)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         return img
 
     def postprocess(self, input_data, org_w, org_h):
+        # 后处理
         pass
 
     def dfl(self, position):
@@ -112,7 +118,7 @@ class BaseModel:
         return _in.reshape(-1, ch)
 
     def filter_boxes(self, boxes, box_class_probs):
-        """Filter boxes with object threshold."""
+        # 过滤 boxes
         class_max_score = np.max(box_class_probs, axis=-1)
         classes = np.argmax(box_class_probs, axis=-1)
         _class_pos = np.where(class_max_score >= self.conf)
