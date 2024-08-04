@@ -71,6 +71,8 @@ class BaseModel:
         self.model_path = model_path
         self.npuid = npuid
         self.model = self.load_model(model_path.rsplit(".", 1)[1])
+        self.grid = None
+        self.stride = None
 
     def load_model(self, type):
         if type == "onnx":
@@ -184,18 +186,19 @@ class DetectModel(BaseModel):
         return xywhs, classes, scores
 
     def dist2bbox(self, position):
-        grid_h, grid_w = position.shape[2:4]
-        col, row = np.meshgrid(np.arange(0, grid_w), np.arange(0, grid_h))
-        col = col.reshape(1, 1, grid_h, grid_w)
-        row = row.reshape(1, 1, grid_h, grid_w)
-        grid = np.concatenate((col, row), axis=1)
-        stride = np.array([self.imgsz // grid_h, self.imgsz // grid_w]).reshape(
-            (1, 2, 1, 1)
-        )
+        if self.grid is None:
+            grid_h, grid_w = position.shape[2:4]
+            col, row = np.meshgrid(np.arange(0, grid_w), np.arange(0, grid_h))
+            col = col.reshape(1, 1, grid_h, grid_w)
+            row = row.reshape(1, 1, grid_h, grid_w)
+            self.grid = np.concatenate((col, row), axis=1)
+            self.stride = np.array([self.imgsz // grid_h, self.imgsz // grid_w]).reshape(
+                (1, 2, 1, 1)
+            )
 
-        box_xy = grid + 0.5 - position[:, 0:2, :, :]
-        box_xy2 = grid + 0.5 + position[:, 2:4, :, :]
-        xyxy = np.concatenate((box_xy * stride, box_xy2 * stride), axis=1)
+        box_xy = self.grid + 0.5 - position[:, 0:2, :, :]
+        box_xy2 = self.grid + 0.5 + position[:, 2:4, :, :]
+        xyxy = np.concatenate((box_xy * self.stride, box_xy2 * self.stride), axis=1)
         return xyxy
 
     def nms(self, boxes, scores):
@@ -286,18 +289,22 @@ class OBBModel(BaseModel):
         cos, sin = np.cos(rads), np.sin(rads)
         xf, yf = np.split((rb - lt) / 2, 2, axis=1)
         x, y = xf * cos - yf * sin, xf * sin + yf * cos
+        box_xy = np.concatenate((x,y),axis=1)
 
-        grid_h, grid_w = dists.shape[2:4]
-        col, row = np.meshgrid(np.arange(0, grid_w), np.arange(0, grid_h))
-        col = col.reshape(1, 1, grid_h, grid_w)
-        row = row.reshape(1, 1, grid_h, grid_w)
-        stride = np.array([self.imgsz // grid_h, self.imgsz // grid_w]).reshape(
-            (1, 2, 1, 1)
-        )
-        box_x, box_y = col + 0.5 + x, row + 0.5 + y
-        box_xy = np.concatenate((box_x, box_y), axis=1)
-        return np.concatenate([box_xy * stride, (rb + lt) * stride, rads], axis=1)
+        if self.grid is None:
+            grid_h, grid_w = dists.shape[2:4]
+            col, row = np.meshgrid(np.arange(0, grid_w), np.arange(0, grid_h))
+            col = col.reshape(1, 1, grid_h, grid_w)
+            row = row.reshape(1, 1, grid_h, grid_w)
+            self.grid = np.concatenate((col, row), axis=1)
+            self.stride = np.array([self.imgsz // grid_h, self.imgsz // grid_w]).reshape(
+                (1, 2, 1, 1)
+            )
 
+        box_xy = self.grid + 0.5 + box_xy
+        xywhr = np.concatenate([box_xy * self.stride, (rb + lt) * self.stride, rads], axis=1)
+        return xywhr
+    
     def nms(self, boxes, scores):
         if len(boxes) == 0:
             return np.empty((0,), dtype=np.int8)
